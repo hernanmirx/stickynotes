@@ -1,0 +1,54 @@
+# Dependencias de Node / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Compilación de Frontend (Vite)
+dist/
+dist-ssr/
+*.local
+
+# Compilación de Rust / Tauri
+target/
+/src-tauri/target/
+/src-tauri/target/
+
+# Frontend / Vite build
+/dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+src-tauri/WixTools/
+**/*.rs.bk
+
+# Compilaciones Móviles (Android / iOS) - artefactos generados
+src-tauri/gen/android/**/build/
+src-tauri/gen/android/.gradle/
+src-tauri/gen/android/local.properties
+src-tauri/gen/ios/build/
+src-tauri/gen/ios/Pods/
+src-tauri/gen/ios/*.xcworkspace/xcuserdata/
+*.apk
+*.aab
+*.ipa
+
+# Credenciales, Secretos OAuth y Sesiones locales (NUNCA subir a Git)
+.env
+.env.*
+!.env.example
+client_secret*.json
+*gdrive_config*.json
+*gdrive_session*.json
+notes.json
+
+# Archivos de Sistema Operativo y Editores
+.DS_Store
+Thumbs.db
+*~
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
