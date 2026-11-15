@@ -76,7 +76,7 @@ async function initStickyNoteWindow(noteId: string) {
     const updated = await invoke<StickyNote | null>("get_note", { id: noteId });
     if (updated) {
       note = updated;
-      syncStatusText = "Sincronizado en Drive ✓";
+      syncStatusText = "Sincronizado en la nube ✓";
       renderNote();
     }
   });
@@ -93,7 +93,7 @@ async function initStickyNoteWindow(noteId: string) {
       syncStatusText = "Guardado ✓";
       updateFooterStatus();
 
-      // Si el usuario tiene sesión iniciada y auto_sync activo, respaldamos en segundo plano
+      // Si el usuario tiene sesión iniciada y auto_sync activo, respaldamos en el servidor PHP+MySQL
       if (cloudSyncTimer) window.clearTimeout(cloudSyncTimer);
       cloudSyncTimer = window.setTimeout(async () => {
         try {
@@ -102,9 +102,9 @@ async function initStickyNoteWindow(noteId: string) {
             await invoke("sync_google_drive");
           }
         } catch {
-          // Silencioso en segundo plano si no hay internet temporalmente
+          // Silencioso si no hay red temporalmente
         }
-      }, 4000);
+      }, 3500);
     }, 280);
   }
 
@@ -133,7 +133,7 @@ async function initStickyNoteWindow(noteId: string) {
                 ? "Fijada siempre visible (Click para desfijar)"
                 : "Fijar nota siempre encima"
             }">📌</button>
-            <button class="icon-btn" id="btn-manager" title="Mis notas y Cuenta de Google">☁️</button>
+            <button class="icon-btn" id="btn-manager" title="Mis notas y Sincronización en la Nube">☁️</button>
             <button class="icon-btn danger" id="btn-delete" title="Eliminar nota">🗑️</button>
             <button class="icon-btn" id="btn-close" title="Ocultar ventana de nota">✕</button>
           </div>
@@ -370,13 +370,16 @@ async function initStickyNoteWindow(noteId: string) {
 }
 
 /* =========================================================================
-   MODO 2: PANEL DE NOTAS Y CUENTA DE GOOGLE DRIVE (SIN DATOS SENSIBLES)
+   MODO 2: PANEL DE NOTAS Y SINCRONIZACIÓN PROPIA (PHP + MYSQL)
    ========================================================================= */
 async function initManagerWindow() {
   let notes: StickyNote[] = [];
   let cloudStatus: CloudAccountStatus = await invoke("get_cloud_status");
   let searchQuery = "";
   let statusBanner = "";
+  let showServerConfig = false;
+  let emailInput = "";
+  let passwordInput = "";
 
   async function refreshData() {
     notes = await invoke<StickyNote[]>("list_notes");
@@ -408,7 +411,7 @@ async function initManagerWindow() {
           <div class="manager-brand">
             <div>
               <h1>📌 StickyNotes</h1>
-              <span>Tus notas rápidas y listas de comprobación en todos tus dispositivos</span>
+              <span>Notas rápidas y listas de comprobación • Sincronización Multidispositivo (Linux, Android, iOS)</span>
             </div>
           </div>
           <div class="manager-actions">
@@ -418,23 +421,26 @@ async function initManagerWindow() {
         </div>
 
         <div class="manager-content">
-          <!-- Tarjeta limpia de Cuenta de Google Drive para el usuario final -->
+          <!-- Panel de Cuenta y Sincronización con Backend Propio (PHP + MySQL) -->
           <div class="sync-panel">
             <div class="sync-panel-header">
               <div>
-                <h2>☁️ Respaldo y Sincronización en Google Drive</h2>
+                <h2>☁️ Cuenta y Sincronización en la Nube</h2>
                 <p style="font-size:0.84rem; color:#9aa0a6; margin-top:4px;">
                   ${
                     cloudStatus.connected
-                      ? `🟢 Conectado como <strong style="color:#fff;">${escapeHtml(
-                          cloudStatus.user_email || "Cuenta de Google"
+                      ? `🟢 Sesión iniciada como <strong style="color:#fff;">${escapeHtml(
+                          cloudStatus.user_email || "Usuario"
                         )}</strong> • Última sincronización: ${lastSyncFormatted}`
-                      : "Inicia sesión con Google para respaldar tus notas en la nube y recuperarlas en Linux, Android o iOS."
+                      : "Inicia sesión o crea tu cuenta gratuita para respaldar y sincronizar tus notas en todos tus dispositivos."
                   }
                 </p>
               </div>
 
-              <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <button class="btn-secondary" id="btn-toggle-server" title="Configurar URL del servidor PHP">
+                  ⚙️ Servidor
+                </button>
                 ${
                   cloudStatus.connected
                     ? `
@@ -442,7 +448,7 @@ async function initManagerWindow() {
                         <input type="checkbox" id="chk-auto-sync" ${
                           cloudStatus.auto_sync ? "checked" : ""
                         } />
-                        Sincronización automática
+                        Auto-sincronizar
                       </label>
                       <button class="btn-primary" id="btn-sync-now">
                         🔄 Sincronizar ahora
@@ -451,14 +457,63 @@ async function initManagerWindow() {
                         Cerrar sesión
                       </button>
                     `
-                    : `
-                      <button class="btn-primary" id="btn-oauth-login">
-                        🌐 Iniciar sesión con Google
-                      </button>
-                    `
+                    : ""
                 }
               </div>
             </div>
+
+            ${
+              showServerConfig
+                ? `
+                <div class="sync-grid" style="padding-top:6px; border-top:1px solid rgba(255,255,255,0.08);">
+                  <div class="field-group">
+                    <label>URL de tu API en el Hosting Compartido (<code>api.php</code>)</label>
+                    <div style="display:flex; gap:8px;">
+                      <input
+                        type="url"
+                        id="input-api-url"
+                        style="flex:1;"
+                        placeholder="https://tudominio.com/stickynotes/api.php"
+                        value="${escapeHtml(cloudStatus.api_url)}"
+                      />
+                      <button class="btn-primary" id="btn-save-url">Guardar URL</button>
+                    </div>
+                  </div>
+                </div>
+              `
+                : ""
+            }
+
+            ${
+              !cloudStatus.connected
+                ? `
+                <div class="sync-grid" style="align-items:flex-end;">
+                  <div class="field-group">
+                    <label>Correo electrónico</label>
+                    <input
+                      type="email"
+                      id="auth-email"
+                      placeholder="tucorreo@ejemplo.com"
+                      value="${escapeHtml(emailInput)}"
+                    />
+                  </div>
+                  <div class="field-group">
+                    <label>Contraseña</label>
+                    <input
+                      type="password"
+                      id="auth-password"
+                      placeholder="Mínimo 6 caracteres..."
+                      value="${escapeHtml(passwordInput)}"
+                    />
+                  </div>
+                  <div style="display:flex; gap:8px;">
+                    <button class="btn-primary" id="btn-login">🔑 Iniciar Sesión</button>
+                    <button class="btn-secondary" id="btn-register">✨ Crear Cuenta</button>
+                  </div>
+                </div>
+              `
+                : ""
+            }
 
             ${
               statusBanner
@@ -531,6 +586,57 @@ async function initManagerWindow() {
       await refreshData();
     });
 
+    document.getElementById("btn-toggle-server")?.addEventListener("click", () => {
+      showServerConfig = !showServerConfig;
+      renderManager();
+    });
+
+    document.getElementById("btn-save-url")?.addEventListener("click", async () => {
+      const val = (document.getElementById("input-api-url") as HTMLInputElement)?.value || "";
+      await invoke("set_api_url", { apiUrl: val });
+      showServerConfig = false;
+      statusBanner = "✅ URL del servidor PHP actualizada.";
+      await refreshData();
+    });
+
+    const emailEl = document.getElementById("auth-email") as HTMLInputElement | null;
+    const passEl = document.getElementById("auth-password") as HTMLInputElement | null;
+    emailEl?.addEventListener("input", () => {
+      emailInput = emailEl.value;
+    });
+    passEl?.addEventListener("input", () => {
+      passwordInput = passEl.value;
+    });
+
+    const handleAuth = async (cmd: "auth_login" | "auth_register") => {
+      emailInput = emailEl?.value.trim() || emailInput;
+      passwordInput = passEl?.value || passwordInput;
+      statusBanner =
+        cmd === "auth_login"
+          ? "Iniciando sesión en el servidor..."
+          : "Creando tu cuenta en el servidor...";
+      renderManager();
+      try {
+        const msg = await invoke<string>(cmd, {
+          email: emailInput,
+          password: passwordInput,
+        });
+        passwordInput = "";
+        statusBanner = `${msg} • Sincronizando tus notas...`;
+        renderManager();
+        const res = await invoke<SyncResult>("sync_google_drive");
+        statusBanner = `✅ ${msg} • ${res.status} (${res.merged_count} notas activas)`;
+      } catch (err) {
+        statusBanner = `⚠️ ${String(err)}`;
+      }
+      await refreshData();
+    };
+
+    document.getElementById("btn-login")?.addEventListener("click", () => handleAuth("auth_login"));
+    document
+      .getElementById("btn-register")
+      ?.addEventListener("click", () => handleAuth("auth_register"));
+
     const searchInput = document.getElementById("mgr-search") as HTMLInputElement | null;
     searchInput?.addEventListener("input", () => {
       searchQuery = searchInput.value;
@@ -542,29 +648,14 @@ async function initManagerWindow() {
       }
     });
 
-    document.getElementById("btn-oauth-login")?.addEventListener("click", async () => {
-      statusBanner = "Abriendo navegador para iniciar sesión con tu cuenta de Google...";
-      renderManager();
-      try {
-        const msg = await invoke<string>("start_google_oauth");
-        statusBanner = `${msg} • Sincronizando tus notas...`;
-        renderManager();
-        const res = await invoke<SyncResult>("sync_google_drive");
-        statusBanner = `✅ ${msg} • ${res.status} (${res.merged_count} notas respaldadas)`;
-      } catch (err) {
-        statusBanner = `Aviso: ${String(err)}`;
-      }
-      await refreshData();
-    });
-
     document.getElementById("btn-sync-now")?.addEventListener("click", async () => {
-      statusBanner = "Sincronizando con Google Drive...";
+      statusBanner = "Sincronizando con el servidor MySQL...";
       renderManager();
       try {
         const res = await invoke<SyncResult>("sync_google_drive");
         statusBanner = `✅ ${res.status} (${res.merged_count} notas activas)`;
       } catch (err) {
-        statusBanner = `Aviso de sincronización: ${String(err)}`;
+        statusBanner = `⚠️ ${String(err)}`;
       }
       await refreshData();
     });
@@ -577,7 +668,7 @@ async function initManagerWindow() {
 
     document.getElementById("btn-logout")?.addEventListener("click", async () => {
       await invoke("logout_google");
-      statusBanner = "Sesión de Google cerrada en este dispositivo.";
+      statusBanner = "Sesión cerrada en este dispositivo.";
       await refreshData();
     });
 

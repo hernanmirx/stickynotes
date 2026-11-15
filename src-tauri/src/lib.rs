@@ -34,9 +34,10 @@ pub struct StickyNote {
 }
 
 /// Sesión interna almacenada localmente por el backend en Rust.
-/// Sus tokens nunca se envían a la interfaz de usuario.
+/// Su `access_token` nunca se expone a la interfaz de usuario.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GoogleDriveSession {
+    pub api_url: Option<String>,
     pub access_token: Option<String>,
     pub refresh_token: Option<String>,
     pub user_email: Option<String>,
@@ -47,6 +48,7 @@ pub struct GoogleDriveSession {
 impl Default for GoogleDriveSession {
     fn default() -> Self {
         Self {
+            api_url: None,
             access_token: None,
             refresh_token: None,
             user_email: None,
@@ -56,11 +58,21 @@ impl Default for GoogleDriveSession {
     }
 }
 
-/// Estado público y seguro que ve la interfaz de usuario (sin ningún secreto ni token).
+impl GoogleDriveSession {
+    pub fn effective_api_url(&self) -> String {
+        match &self.api_url {
+            Some(u) if !u.trim().is_empty() => u.trim().to_string(),
+            _ => gdrive::DEFAULT_SYNC_API_URL.to_string(),
+        }
+    }
+}
+
+/// Estado público y seguro que recibe la interfaz de usuario.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudAccountStatus {
     pub connected: bool,
     pub user_email: Option<String>,
+    pub api_url: String,
     pub last_sync: Option<u64>,
     pub auto_sync: bool,
 }
@@ -89,7 +101,7 @@ impl AppState {
     pub fn load(data_dir: PathBuf) -> Self {
         let _ = fs::create_dir_all(&data_dir);
         let notes_path = data_dir.join("notes.json");
-        let session_path = data_dir.join("gdrive_session.json");
+        let session_path = data_dir.join("cloud_session.json");
 
         let mut notes: Vec<StickyNote> = if notes_path.exists() {
             fs::read_to_string(&notes_path)
@@ -118,7 +130,7 @@ impl AppState {
                     },
                     ChecklistItem {
                         id: Uuid::new_v4().to_string(),
-                        text: "Pulsar ☁️ para iniciar sesión con Google y respaldar en Drive".to_string(),
+                        text: "Pulsar ☁️ para iniciar sesión y sincronizar en tu servidor MySQL".to_string(),
                         checked: false,
                     },
                 ],
@@ -165,7 +177,7 @@ impl AppState {
 
     pub fn persist_drive_session(&self) {
         if let Ok(session) = self.drive_session.lock() {
-            let path = self.data_dir.join("gdrive_session.json");
+            let path = self.data_dir.join("cloud_session.json");
             if let Ok(json) = serde_json::to_string_pretty(&*session) {
                 let _ = fs::write(path, json);
             }
@@ -218,8 +230,8 @@ pub fn spawn_manager_window(app: &AppHandle) -> Result<(), String> {
         label,
         WebviewUrl::App("index.html?view=manager".into()),
     )
-    .title("StickyNotes - Mis Notas y Cuenta Google")
-    .inner_size(860.0, 620.0)
+    .title("StickyNotes - Mis Notas y Sincronización en la Nube")
+    .inner_size(860.0, 640.0)
     .min_inner_size(580.0, 440.0)
     .decorations(true)
     .resizable(true)
@@ -404,11 +416,27 @@ fn open_manager_window(app: AppHandle) -> Result<(), String> {
 fn get_cloud_status(state: State<'_, AppState>) -> CloudAccountStatus {
     let s = state.drive_session.lock().unwrap();
     CloudAccountStatus {
-        connected: s.access_token.is_some() || s.refresh_token.is_some(),
+        connected: s.access_token.is_some(),
         user_email: s.user_email.clone(),
+        api_url: s.effective_api_url(),
         last_sync: s.last_sync,
         auto_sync: s.auto_sync,
     }
+}
+
+#[tauri::command]
+fn set_api_url(api_url: String, state: State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut s = state.drive_session.lock().unwrap();
+        let trimmed = api_url.trim().to_string();
+        s.api_url = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        };
+    }
+    state.persist_drive_session();
+    Ok(())
 }
 
 #[tauri::command]
@@ -434,9 +462,30 @@ fn logout_google(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn start_google_oauth(state: State<'_, AppState>) -> Result<String, String> {
+async fn auth_login(
+    email: String,
+    password: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
     let mut session = state.drive_session.lock().unwrap().clone();
-    let msg = gdrive::perform_google_oauth(&mut session).await?;
+    let msg = gdrive::authenticate_with_php_backend("login", &email, &password, &mut session).await?;
+    {
+        let mut current = state.drive_session.lock().unwrap();
+        *current = session;
+    }
+    state.persist_drive_session();
+    Ok(msg)
+}
+
+#[tauri::command]
+async fn auth_register(
+    email: String,
+    password: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let mut session = state.drive_session.lock().unwrap().clone();
+    let msg =
+        gdrive::authenticate_with_php_backend("register", &email, &password, &mut session).await?;
     {
         let mut current = state.drive_session.lock().unwrap();
         *current = session;
@@ -518,9 +567,11 @@ pub fn run() {
             set_note_always_on_top,
             open_manager_window,
             get_cloud_status,
+            set_api_url,
             set_auto_sync,
             logout_google,
-            start_google_oauth,
+            auth_login,
+            auth_register,
             sync_google_drive,
         ])
         .run(tauri::generate_context!())

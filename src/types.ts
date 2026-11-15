@@ -30,12 +30,13 @@ export interface StickyNote {
 }
 
 /**
- * Estado público de la cuenta que se envía a la interfaz.
- * Ningún dato sensible (client_id, client_secret, tokens) sale del backend en Rust.
+ * Estado público de la cuenta en el servidor PHP + MySQL.
+ * El token de sesión permanece protegido dentro del backend en Rust.
  */
 export interface CloudAccountStatus {
   connected: boolean;
   user_email: string | null;
+  api_url: string;
   last_sync: number | null;
   auto_sync: boolean;
 }

@@ -38,9 +38,11 @@ src-tauri/gen/ios/*.xcworkspace/xcuserdata/
 .env
 .env.*
 !.env.example
+backend-php/config.php
 client_secret*.json
 *gdrive_config*.json
 *gdrive_session*.json
+*cloud_session*.json
 notes.json
 
 # Archivos de Sistema Operativo y Editores
