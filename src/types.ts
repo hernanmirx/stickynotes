@@ -12,11 +12,21 @@ export interface ChecklistItem {
   checked: boolean;
 }
 
+export interface NoteAttachment {
+  id: string;
+  file_name: string;
+  mime_type: string;
+  size: number;
+  created_at: number;
+  uploaded: boolean;
+}
+
 export interface StickyNote {
   id: string;
   title: string;
   content: string;
   checklist: ChecklistItem[];
+  attachments: NoteAttachment[];
   show_checklist: boolean;
   color: NoteColor;
   is_open: boolean;
@@ -25,6 +35,8 @@ export interface StickyNote {
   height: number;
   x: number | null;
   y: number | null;
+  reminder_at: number | null;
+  reminder_notified: boolean;
   updated_at: number;
   deleted: boolean;
 }
